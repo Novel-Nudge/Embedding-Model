@@ -26,8 +26,8 @@ This repository contains the code for the novel nudge embedding model. This mode
 ## TODO
 
 - [x] Add a README.md to the src folder
-- [ ] Improve training loop, with checkpointing and early stopping
-- [ ] Add in monitoring using wandb
-- [ ] Add in validation
-- [ ] Add in evaluation steps and final evaluation
+- [x] Improve training loop, with checkpointing and early stopping
+- [x] Add in monitoring using wandb
+- [x] Add in validation
+- [x] Add in evaluation steps and final evaluation
 - [ ] Improve pre-processing pipeline for large datasets

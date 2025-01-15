@@ -9,6 +9,7 @@ import torch.optim as optim
 import torch.nn as nn
 import ast
 import numpy as np
+import os
 
 
 def create_weighted_tensor(data: pd.DataFrame, batch_size: int,
@@ -28,9 +29,6 @@ def create_weighted_tensor(data: pd.DataFrame, batch_size: int,
     # Convert the scaling factors into a tensor
     scaling_tensor = torch.tensor(scaling_factors, dtype=torch.float32)
 
-    print("Generated weighted tensor: \n", scaling_tensor)
-    print("Shape of weighted tensor: \n", scaling_tensor.shape)
-
     return scaling_tensor.repeat(batch_size, 1).to(device)
 
 
@@ -45,37 +43,88 @@ def load_data(data_path: str) -> pd.DataFrame:
     return df
 
 
+def load_model_params(
+    weighted_tensor: torch.Tensor,
+    use_checkpoint: bool = False,
+    lr: float = 1e-3,
+):
+    checkpoint_path = os.path.join(os.getcwd(), "checkpoints")
+    checkpoint_files = os.listdir(checkpoint_path)
+    checkpoint_files = [f for f in checkpoint_files if f.endswith('.pth')]
+    checkpoint_files = sorted(
+        checkpoint_files, key=lambda x: int(x.split('_')[-1].split('.')[0]))
+
+    if not checkpoint_files and use_checkpoint:
+        raise ValueError("No checkpoint files found")
+
+    model = BookEmbeddingModel()
+    criterion = EmbeddingLossWithWeightedTarget(weighted_tensor)
+    optimizer = optim.AdamW(model.parameters(), lr=lr)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.1)
+
+    if use_checkpoint:
+        # Load the latest checkpoint
+        checkpoint_file = os.path.join(checkpoint_path, checkpoint_files[-1])
+        checkpoint = torch.load(checkpoint_file)
+
+        # Load model, optimizer, and scheduler states
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+
+        print(f"Loaded checkpoint from {checkpoint_file}")
+
+    return model, criterion, optimizer, scheduler
+
+
 def main():
+    # Set hyperparameters
     batch_size = 256
     num_epochs = 10
+    num_workers = 8
     lr = 1e-3
+    accumulation_steps = 4
 
-    # Load data
+    # Manually pull out device type
     device = torch.device('cuda' if torch.cuda.is_available() else 'mps')
+
+    # Load data and create weighted tensor
     df = load_data('dataset/embeddings.csv')
+    weighted_tensor = create_weighted_tensor(data=df,
+                                             batch_size=batch_size,
+                                             device=device)
+
+    # Load tokenizer and create dataloaders
     tokenizer = AutoTokenizer.from_pretrained(
         'sentence-transformers/all-MiniLM-L6-v2')
     train_loader, val_loader = create_dataloaders(data=df,
                                                   tokenizer=tokenizer,
                                                   device=device,
-                                                  num_workers=8,
+                                                  num_workers=num_workers,
                                                   batch_size=batch_size)
 
-    # Initialize model, optimizer, and loss function
-    model = BookEmbeddingModel().to(device)
-    weighted_tensor = create_weighted_tensor(data=df,
-                                             batch_size=batch_size,
-                                             device=device)
-    criterion = EmbeddingLossWithWeightedTarget(weighted_tensor).to(device)
-    optimizer = optim.AdamW(model.parameters(), lr=lr)
+    # Load model, optimizer, and loss function
+    (model, criterion, optimizer,
+     scheduler) = load_model_params(use_checkpoint=False,
+                                    lr=lr,
+                                    weighted_tensor=weighted_tensor)
+
+    # Move model and loss function to device
+    model.to(device)
+    criterion.to(device)
+
     # Train model
-    train(model,
-          train_loader,
-          val_loader,
-          optimizer,
-          criterion,
-          num_epochs=num_epochs,
-          device=device)
+    train(
+        model,
+        train_loader,
+        val_loader,
+        optimizer,
+        criterion,
+        num_epochs=num_epochs,
+        device=device,
+        scheduler=scheduler,
+        accumulation_steps=accumulation_steps,
+    )
 
 
 if __name__ == "__main__":

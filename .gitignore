@@ -4,8 +4,11 @@ __pycache__
 .DS_Store
 
 # Environment file
-.venv/ 
+.venv/
+
+# wandb runs
+wandb/
 
 # Dataset and model bits
 dataset/
-checkpoints/ 
+checkpoints/
