@@ -1,0 +1,11 @@
+
+# Cache stuff
+__pycache__
+.DS_Store
+
+# Environment file
+.venv/ 
+
+# Dataset and model bits
+dataset/
+checkpoints/ 
