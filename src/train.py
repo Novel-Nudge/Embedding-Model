@@ -11,12 +11,12 @@ def train_epoch(model: nn.Module,
                 scheduler: torch.optim.lr_scheduler.Optimizer,
                 criterion: nn.Module,
                 device: torch.device,
-                accumulation_steps: int = 1) -> float:
+                accumulation_steps: int = 1,
+                log_interval: int = 10) -> float:
     model.train()
     total_loss = 0.0
     progress_bar = tqdm(dataloader, desc="Training", leave=False)
     for batch_idx, batch in enumerate(progress_bar):
-        optimizer.zero_grad()
         target_embeddings, input_ids, attention_mask = batch
 
         # Move to device
@@ -28,10 +28,11 @@ def train_epoch(model: nn.Module,
         embeddings = model(input_ids, attention_mask)
 
         # Compute loss
-        loss = criterion(embeddings, target_embeddings)
+        batch_loss, cosine_loss, mse_loss = criterion(embeddings, target_embeddings)
+        scaled_loss = batch_loss / accumulation_steps
 
         # Backward pass
-        loss.backward()
+        scaled_loss.backward()
 
         # Update after every `accumulation_steps` batches
         if (batch_idx + 1) % accumulation_steps == 0:
@@ -40,13 +41,19 @@ def train_epoch(model: nn.Module,
             scheduler.step()
 
         # Accumulate loss
-        total_loss += loss.item()
+        total_loss += scaled_loss.item() * accumulation_steps
 
         # Log the batch loss to wandb
-        wandb.log({"batch_loss": loss.item(), "batch_idx": batch_idx})
+        if batch_idx % log_interval == 0:
+            wandb.log({
+                "batch_train_loss": scaled_loss.item(),
+                "batch_train_cosine_loss": cosine_loss,
+                "batch_train_mse_loss": mse_loss,
+                "batch_train_idx": batch_idx
+            })
 
         # Update tqdm description with current loss
-        progress_bar.set_description(f"Training (Loss: {loss.item():.4f})")
+        progress_bar.set_description(f"Training (Loss: {scaled_loss.item():.4f})")
 
         # Free up memory
         del target_embeddings, input_ids, attention_mask
@@ -63,6 +70,8 @@ def validate_epoch(model: nn.Module, dataloader: torch.utils.data.DataLoader,
     total_loss = 0.0
     progress_bar = tqdm(dataloader, desc="Validation", leave=False)
 
+    print(f"Dataloader length: {len(dataloader)}")
+
     for batch_idx, batch in enumerate(progress_bar):
         target_embeddings, input_ids, attention_mask = batch
 
@@ -75,15 +84,18 @@ def validate_epoch(model: nn.Module, dataloader: torch.utils.data.DataLoader,
         embeddings = model(input_ids, attention_mask)
 
         # Compute loss
-        loss = criterion(embeddings, target_embeddings)
+        batch_loss, cosine_loss, mse_loss = criterion(embeddings, target_embeddings)
 
         # Accumulate loss
-        total_loss += loss.item()
+        total_loss += batch_loss.item()
 
         # Update tqdm description with current loss
-        progress_bar.set_description(f"Validation (Loss: {loss.item():.4f})")
+        progress_bar.set_description(f"Validation (Loss: {batch_loss.item():.4f})")
 
-        wandb.log({"batch_val_loss": loss.item(), "batch_val_idx": batch_idx})
+        wandb.log({"batch_val_loss": batch_loss.item(),
+                  "batch_val_cosine_loss": cosine_loss,
+                  "batch_val_mse_loss": mse_loss,
+                  "batch_val_idx": batch_idx})
 
     return total_loss / len(dataloader)
 
@@ -118,7 +130,8 @@ def train(
                                  accumulation_steps=accumulation_steps)
 
         # Validate the model
-        validate_loss = validate_epoch(model=model,
+        with torch.no_grad():
+            validate_loss = validate_epoch(model=model,
                                        dataloader=val_loader,
                                        criterion=criterion,
                                        device=device)

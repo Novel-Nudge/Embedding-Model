@@ -34,6 +34,8 @@ def create_weighted_tensor(data: pd.DataFrame, batch_size: int,
 
 def load_data(data_path: str) -> pd.DataFrame:
     df = pd.read_csv(data_path)
+    df = df.dropna(subset=['description', 'title'])
+    df = df[df['description'].str.strip().ne('') & df['title'].str.strip().ne('')]
 
     # NOTE: idk why i saved the embedding as a string, but it takes ages to
     # generate the embeddings so i'm just going to convert it to a float32 array
@@ -47,6 +49,7 @@ def load_model_params(
     weighted_tensor: torch.Tensor,
     use_checkpoint: bool = False,
     lr: float = 1e-3,
+    steps_per_epoch: int = 1000,
 ):
     checkpoint_path = os.path.join(os.getcwd(), "checkpoints")
     checkpoint_files = os.listdir(checkpoint_path)
@@ -60,7 +63,12 @@ def load_model_params(
     model = BookEmbeddingModel()
     criterion = EmbeddingLossWithWeightedTarget(weighted_tensor)
     optimizer = optim.AdamW(model.parameters(), lr=lr)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.1)
+    scheduler = optim.lr_scheduler.OneCycleLR(optimizer,
+                                              max_lr=lr,
+                                              total_steps=steps_per_epoch,
+                                              pct_start=0.1,
+                                              div_factor=10,
+                                              final_div_factor=10)
 
     if use_checkpoint:
         # Load the latest checkpoint
@@ -79,10 +87,10 @@ def load_model_params(
 
 def main():
     # Set hyperparameters
-    batch_size = 256
+    batch_size = 1024
     num_epochs = 10
     num_workers = 8
-    lr = 1e-3
+    lr = 1e-4
     accumulation_steps = 4
 
     # Manually pull out device type
@@ -107,7 +115,9 @@ def main():
     (model, criterion, optimizer,
      scheduler) = load_model_params(use_checkpoint=False,
                                     lr=lr,
-                                    weighted_tensor=weighted_tensor)
+                                    weighted_tensor=weighted_tensor,
+                                    steps_per_epoch=len(train_loader) *
+                                    num_epochs)
 
     # Move model and loss function to device
     model.to(device)

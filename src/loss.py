@@ -3,7 +3,6 @@ import torch.nn.functional as F
 import torch.nn as nn
 
 
-# NOTE: We probably want some way to use author-name to infleunce the loss
 class EmbeddingLossWithWeightedTarget(nn.Module):
 
     def __init__(self,
@@ -29,18 +28,20 @@ class EmbeddingLossWithWeightedTarget(nn.Module):
         """
 
         # Step 1: Compute the weighted target embedding using dot product with weight vectors
-        weighted_target = self.weighted_tensor * target
+        dot_product = self.weighted_tensor * target
+        weighted_target = F.normalize(dot_product, p=2, dim=1)
 
         # Step 2: Compute the cosine and MSE losses
         cosine_loss = 1.0 - F.cosine_similarity(
             predicted, weighted_target, dim=-1).mean()
         mse_loss = F.mse_loss(predicted, weighted_target)
 
-        # Optional: Apply regularization (like unit norm constraint)
-        reg_norm = torch.sum((predicted.norm(dim=1) - 1)**2)
 
         # Total loss
-        total_loss = (self.cosine_weight * cosine_loss) + (self.mse_weight *
-                                                           mse_loss) + reg_norm
+        cosine_weight_loss = self.cosine_weight * cosine_loss
+        mse_weight_loss = self.mse_weight * mse_loss
 
-        return total_loss
+        total_loss = cosine_weight_loss + mse_weight_loss
+
+
+        return total_loss, cosine_loss.item(), mse_loss.item()

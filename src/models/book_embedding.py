@@ -24,14 +24,21 @@ class BookEmbeddingModel(nn.Module):
         self.norm = nn.LayerNorm(384)
 
         # Feed-forward network
-        self.ff_network = nn.Sequential(nn.Linear(384, 512), nn.GELU(),
+        self.ff_network = nn.Sequential(nn.Linear(384, 1024), nn.GELU(),
                                         nn.Dropout(dropout_rate),
-                                        nn.Linear(512, 384))
+                                        nn.Linear(1024, 384))
 
         # Final projection to embedding dimension
-        self.projection = nn.Sequential(nn.Linear(384, 128), nn.LayerNorm(128),
-                                        nn.GELU(), nn.Dropout(dropout_rate),
-                                        nn.Linear(128, 20), nn.LayerNorm(20))
+        self.projection = nn.Sequential(
+            nn.Linear(384, 256),
+            nn.LayerNorm(256),
+            nn.GELU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(256, 128),
+            nn.LayerNorm(128),
+            nn.Linear(128, 20),
+            nn.LayerNorm(20)
+        )
 
     def forward(self, input_ids: torch.Tensor,
                 attention_mask: torch.Tensor) -> torch.Tensor:

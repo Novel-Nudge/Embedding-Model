@@ -3,6 +3,7 @@ import torch
 import numpy as np
 from typing import Dict, List, Tuple, Union
 import pandas as pd
+from sklearn.model_selection import train_test_split
 
 
 class BookDataset(Dataset):
@@ -44,7 +45,6 @@ class BookDataset(Dataset):
         return torch.tensor(embeddings, dtype=torch.float32)
 
     def __len__(self) -> int:
-        print("shape of embeddings: ", self.embeddings.shape)
         return len(self.embeddings)
 
     def __getitem__(
@@ -78,6 +78,7 @@ def create_dataloaders(
     Returns:
         Tuple of (train_dataloader, val_dataloader)
     """
+
     # Split data into train and validation
     val_size = int(len(data) * val_split)
     train_data = data.iloc[:-val_size]
@@ -89,6 +90,8 @@ def create_dataloaders(
 
     val_dataset = BookDataset(val_data, tokenizer, device, max_length)
     print("Validation dataset created")
+
+    print(f"Validation dataset length: {len(val_dataset)}")
 
     # TODO: this dataloader is currently throwing a segfault on MPS
     # This is likely due to moving everything to the device
@@ -104,21 +107,22 @@ def create_dataloaders(
         pin_memory=True,  # Faster data transfer to GPU
         prefetch_factor=2,  # Prefetch batches
         persistent_workers=True,  # Keep workers alive between epochs
-        multiprocessing_context='fork'
-        if torch.backends.mps.is_available() else None,  # Hacky fix for MPS
+        drop_last=True
     )
     print("Train dataloader created")
 
     val_loader = torch.utils.data.DataLoader(
         val_dataset,
-        multiprocessing_context='fork'
-        if torch.backends.mps.is_available() else None,  # Hacky fix for MPS
         batch_size=batch_size,
         shuffle=False,  # Don't shuffle validation data
         num_workers=num_workers,
         pin_memory=True,
         prefetch_factor=2,
-        persistent_workers=True)
+        persistent_workers=True,
+        drop_last=True
+        )
+
+    print(f"Validation dataloader length: {len(val_loader)}")
 
     print("Validation dataloader created")
 
